@@ -1,0 +1,89 @@
+name: Catastro expediente daily backup
+
+on:
+  schedule:
+    - cron: "20 3 * * *"   # todos los días 03:20 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Force Cloudflare DNS
+        run: |
+          sudo rm -f /etc/resolv.conf
+          echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
+          echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
+
+      - name: Prepare workspace
+        run: |
+          mkdir work
+          echo "DATE=$(date +%F)" >> $GITHUB_ENV
+          echo "TS=$(date -u +%FT%TZ)" >> $GITHUB_ENV
+
+      - name: Download expediente JSON
+        run: |
+          set -e
+
+          EXPEDIENTE="232781"
+          ANHO="2025"
+
+          URL="https://www.catastro.gov.py/expediente-electronico/api/public/consultas-publicas/expediente?filters=%7B%22anho%22:${ANHO},%22numeroExpediente%22:${EXPEDIENTE}%7D"
+
+          SNAPSHOT="work/expediente-${EXPEDIENTE}-${DATE}.json"
+          LATEST="work/expediente-${EXPEDIENTE}.json"
+
+          curl -fsSL "$URL" -o "$SNAPSHOT"
+          cp "$SNAPSHOT" "$LATEST"
+
+          sha256=$(sha256sum "$SNAPSHOT" | awk '{print $1}')
+
+          jq -n \
+            --arg expediente "$EXPEDIENTE" \
+            --arg anho "$ANHO" \
+            --arg url "$URL" \
+            --arg snapshot "$(basename "$SNAPSHOT")" \
+            --arg latest "$(basename "$LATEST")" \
+            --arg sha "$sha256" \
+            --arg timestamp "$TS" \
+            '{
+              expediente: $expediente,
+              anho: $anho,
+              url: $url,
+              snapshot: $snapshot,
+              latest: $latest,
+              sha256: $sha,
+              fetched_at: $timestamp
+            }' > work/manifest.json
+
+      - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          printf "%s\n" "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign manifest
+        run: |
+          gpg --batch --yes --armor --detach-sign work/manifest.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: expediente-${{ env.DATE }}
+          name: Expediente 232781 – Backup ${{ env.DATE }}
+          body: |
+            Backup automático del expediente electrónico (Catastro).
+
+            - Snapshot diario con nombre fechado
+            - Alias estable `latest.json`
+            - Hash SHA-256 del snapshot
+            - Manifest firmado con clave GPG
+
+            Fecha UTC: ${{ env.TS }}
+          files: |
+            work/*.json
+            work/manifest.json.asc
