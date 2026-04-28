@@ -66,9 +66,9 @@ jobs:
         run: |
           printf "%s\n" "$GPG_PRIVATE_KEY" | gpg --batch --import
           KEY_ID=$(gpg --list-secret-keys --keyid-format LONG \
-            | grep sec | awk '{print $2}' | cut -d'/' -f2 | head -1)
+            | grep -oP '[0-9A-F]{16}' | head -1)
           echo "GPG_KEY_ID=$KEY_ID" >> $GITHUB_ENV
-          echo "$KEY_ID:6:" | gpg --batch --import-ownertrust
+          echo "${KEY_ID}:6:" | gpg --batch --import-ownertrust
 
       - name: Sign manifest
         run: |
