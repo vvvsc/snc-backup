@@ -32,7 +32,7 @@ jobs:
           EXPEDIENTE="232781"
           ANHO="2025"
 
-          URL="https://www.catastro.gov.py/expediente-electronico/api/public/consultas-publicas/expediente?filters=%7B%22anho%22:${ANHO},%22numeroExpediente%22:${EXPEDIENTE}%7D"
+          URL="https://www.catastro.gov.py/expediente-electronico/api/public/consultas-publicas/movimiento-expediente?filters=%7B%22anho%22:${ANHO},%22numeroExpediente%22:${EXPEDIENTE}%7D"
 
           SNAPSHOT="work/expediente-${EXPEDIENTE}-${DATE}.json"
           LATEST="work/expediente-${EXPEDIENTE}.json"
@@ -65,10 +65,16 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
           printf "%s\n" "$GPG_PRIVATE_KEY" | gpg --batch --import
+          KEY_ID=$(gpg --list-secret-keys --keyid-format LONG \
+            | grep sec | awk '{print $2}' | cut -d'/' -f2 | head -1)
+          echo "GPG_KEY_ID=$KEY_ID" >> $GITHUB_ENV
+          echo "$KEY_ID:6:" | gpg --batch --import-ownertrust
 
       - name: Sign manifest
         run: |
-          gpg --batch --yes --armor --detach-sign work/manifest.json
+          gpg --batch --yes --armor --detach-sign \
+            --local-user "$GPG_KEY_ID" \
+            work/manifest.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
